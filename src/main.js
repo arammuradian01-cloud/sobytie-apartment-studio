@@ -6,6 +6,7 @@ import {setupCatalog} from './catalog.js';
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {downloadModel} from './model-download.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {navigation,inside} from './navigation.js';
 import {findWalkPath,clearSegment} from './walk-path.js';
@@ -90,7 +91,13 @@ function navigationUI(){const rooms=$('#rooms');rooms.replaceChildren();for(cons
 async function loadVariant(key){
  const token=++generation;state.loaded=false;clearInput();$('#loading').hidden=false;$('#load-message').textContent='Загружается вариант '+key;document.querySelectorAll('[data-variant]').forEach(b=>b.disabled=true);
  try{
-  if(!cache.has(key)){const gltf=await new GLTFLoader().loadAsync(import.meta.env.BASE_URL+'models/SOBYTIE_'+key+'.glb?v=P04T06');cache.set(key,optimize(gltf.scene));}
+  if(!cache.has(key)){
+   const file='models/SOBYTIE_'+key+'.glb?v=P04T06',urls=[import.meta.env.BASE_URL+file];
+   if(location.hostname==='sobytie.aram-sites.duckdns.org')urls.push('https://arammuradian01-cloud.github.io/sobytie-apartment-studio/'+file);
+   const hashes={"A": "a10ac2b20aca81d5a3dd11f40d4cd2ab02923ecbb2cc5edabd7d8de8c166dde4", "B": "4deda9aabc07024f18bd5e3a9cea3235ab8cc682c7d69b5e7bb083442bc98d2d"};
+   const bytes=await downloadModel(urls,hashes[key]);
+   const gltf=await new GLTFLoader().parseAsync(bytes,import.meta.env.BASE_URL);cache.set(key,optimize(gltf.scene));
+  }
   if(token!==generation)return;if(model)scene.remove(model);model=cache.get(key);scene.add(model);state.variant=key;nav=navigation(data,key);interaction=interactions(model,camera,key,message);meshes=[];model.traverse(m=>{if(m.isMesh)meshes.push(m);});
   state.loaded=true;navigationUI();setMode(state.mode);$('#loading').hidden=true;message('Вариант '+key+' · эскизная модель');
  }catch(error){console.error(error);$('#load-message').textContent='Не удалось загрузить модель. Обновите страницу или откройте схемы в боковом меню.';message('Ошибка загрузки 3D');}
