@@ -12,7 +12,11 @@ fs.mkdirSync(out, { recursive: true });
   ]) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
-    const result = { name, url, errors: [], failedRequests: [], authenticatedRequests: [], responses: [] };
+    const result = { name, url, errors: [], failedRequests: [], authenticatedRequests: [], responses: [], captureWarnings: [] };
+    const capture = async suffix => {
+      try { await page.screenshot({ path: `${out}/${name}-${suffix}.png`, timeout: 8000 }); }
+      catch (error) { result.captureWarnings.push({ suffix, error: error.message }); }
+    };
     page.on('pageerror', error => result.errors.push(error.message));
     page.on('requestfailed', request => result.failedRequests.push({ url: request.url(), error: request.failure()?.errorText }));
     page.on('request', request => {
@@ -29,22 +33,21 @@ fs.mkdirSync(out, { recursive: true });
       result.loaded = await page.evaluate(() => window.sobytie ? { ...window.sobytie.diagnostics(), objects: window.sobytie.diagnostics().objects.length } : window.tateDiagnostics.getState());
       result.cookies = (await context.cookies()).length;
       result.passwordFields = await page.locator('input[type="password"]').count();
-      await page.screenshot({ path: `${out}/${name}-desktop.png` });
       if (name.startsWith('sobytie')) {
         await page.evaluate(() => { window.sobytie.selectRoom('lower'); window.sobytie.setMode('gallery'); });
         await page.locator('#interior-image').evaluate(image => image.decode());
         result.interior = await page.locator('#interior-image').evaluate(image => ({ src: image.currentSrc, width: image.naturalWidth }));
-        await page.screenshot({ path: `${out}/${name}-interior.png` });
+        await capture('interior');
         await page.evaluate(() => { window.sobytie.setMode('walk'); window.sobytie.setSun('2029-06-21', 1020); window.sobytie.windowView(); });
       }
       await page.setViewportSize({ width: 390, height: 844 });
       result.horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
-      await page.screenshot({ path: `${out}/${name}-mobile.png` });
+      await capture('mobile');
       result.ok = !result.errors.length && !result.failedRequests.length && !result.authenticatedRequests.length && !result.passwordFields && !result.horizontalOverflow && !result.responses.some(r => r.status >= 400);
     } catch (error) {
       result.ok = false;
       result.error = error.message;
-      await page.screenshot({ path: `${out}/${name}-failure.png` }).catch(() => {});
+      await capture('failure');
     }
     results.push(result);
     console.log(JSON.stringify({ name, ok: result.ok, httpStatus: result.httpStatus, error: result.error, failedRequests: result.failedRequests, authenticatedRequests: result.authenticatedRequests }));
