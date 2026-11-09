@@ -6,14 +6,18 @@ import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {navigation,inside} from './navigation.js';
 import {interactions} from './interactions.js';
 import {optimize} from './optimize.js';
+import {createRealisticRenderer} from './realistic-renderer.js';
+import {RectAreaLightUniformsLib} from 'three/addons/lights/RectAreaLightUniformsLib.js';
 
 const $=s=>document.querySelector(s),canvas=$('#scene'),stage=$('#stage'),status=$('#status');
-const state={variant:'B',mode:'overview',room:'kitchen',loaded:false,light:true,cut:true,yaw:0,pitch:0};
+const state={variant:'B',mode:'overview',room:'kitchen',loaded:false,light:true,brightness:1,cut:true,yaw:0,pitch:0};
 let renderer;
 try{renderer=new THREE.WebGLRenderer({canvas,antialias:true});}catch{ $('#load-message').textContent='3D недоступно. Откройте схемы через меню «Сравнить варианты и планы».';throw new Error('WebGL unavailable');}
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=.88;renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFShadowMap;renderer.localClippingEnabled=true;
 const scene=new THREE.Scene();scene.background=new THREE.Color('#e9e5df');
 const camera=new THREE.PerspectiveCamera(42,1,.025,150);
+RectAreaLightUniformsLib.init();
+const realistic=createRealisticRenderer(renderer,scene,camera);
 const controls=new OrbitControls(camera,canvas);controls.enableDamping=true;controls.dampingFactor=.09;controls.minDistance=4;controls.maxDistance=100;controls.maxPolarAngle=Math.PI*.48;
 const pmrem=new THREE.PMREMGenerator(renderer),env=new RoomEnvironment(),environment=pmrem.fromScene(env,.04);scene.environment=environment.texture;scene.environmentIntensity=.30;env.dispose();pmrem.dispose();
 const hemisphere=new THREE.HemisphereLight('#fffaf1','#a99c87',1.0);scene.add(hemisphere);
@@ -26,7 +30,7 @@ const world=(p,z=0)=>new THREE.Vector3((p[0]-data.origin[0])*data.scale_m_per_sv
 const source=v=>[v.x/data.scale_m_per_svg_unit+data.origin[0],v.z/data.scale_m_per_svg_unit+data.origin[1]];
 function blocked(x,y){const w=world([x,y]);return nav.blocked(x,y)||interaction?.blocked(w.x,w.z);}
 function roomName(r){const v=data.variants[state.variant];return r.id===v.children_room?'Общая детская':r.id===v.parents_room?'Спальня родителей':r.name;}
-function clearInput(){keys.clear();touch.clear();}
+function clearInput(){keys.clear();touch.clear();for(const timer of held.values())clearTimeout(timer);held.clear();}
 function overview(){const center=new THREE.Vector3(7.2,0,-3.7),top=state.mode==='top',direction=(top?new THREE.Vector3(0,1,.0001):new THREE.Vector3(.28,.85,.65)).normalize();const dist=Math.max(8/(Math.tan(THREE.MathUtils.degToRad(21))*camera.aspect),4.6/Math.tan(THREE.MathUtils.degToRad(21)))*1.32;controls.target.copy(center);camera.position.copy(center).addScaledVector(direction,dist);camera.fov=42;camera.updateProjectionMatrix();camera.lookAt(center);controls.update();}
 function spawn(roomId){
  const p=nav.spawn(roomId,(x,y)=>{const w=world([x,y]);return interaction?.blocked(w.x,w.z);});if(!p){message('Нет свободной точки входа. Откройте двери в панели управления.');return false;}
@@ -55,13 +59,15 @@ function navigationUI(){const rooms=$('#rooms');rooms.replaceChildren();for(cons
 async function loadVariant(key){
  const token=++generation;state.loaded=false;clearInput();$('#loading').hidden=false;$('#load-message').textContent='Загружается вариант '+key;document.querySelectorAll('[data-variant]').forEach(b=>b.disabled=true);
  try{
-  if(!cache.has(key)){const gltf=await new GLTFLoader().loadAsync(import.meta.env.BASE_URL+'models/SOBYTIE_'+key+'.glb');cache.set(key,optimize(gltf.scene));}
+  if(!cache.has(key)){const gltf=await new GLTFLoader().loadAsync(import.meta.env.BASE_URL+'models/SOBYTIE_'+key+'.glb?v=P03T02');cache.set(key,optimize(gltf.scene));}
   if(token!==generation)return;if(model)scene.remove(model);model=cache.get(key);scene.add(model);state.variant=key;nav=navigation(data,key);interaction=interactions(model,camera,key,message);meshes=[];model.traverse(m=>{if(m.isMesh)meshes.push(m);});
   state.loaded=true;navigationUI();setMode(state.mode);$('#loading').hidden=true;message('Вариант '+key+' · эскизная модель');
  }catch(error){console.error(error);$('#load-message').textContent='Не удалось загрузить модель. Обновите страницу или откройте схемы в боковом меню.';message('Ошибка загрузки 3D');}
  finally{document.querySelectorAll('[data-variant]').forEach(b=>b.disabled=false);}
 }
-function lightMode(){hemisphere.intensity=state.light?1.0:.32;scene.environmentIntensity=state.light?.30:.16;sun.intensity=state.light?1.9:.7;lights.forEach(l=>l.intensity=state.light?5.8:0);$('#light-toggle').textContent=state.light?'Свет включён':'Вечер без света';$('#light-toggle').setAttribute('aria-pressed',String(state.light));}
+function lightMode(){hemisphere.intensity=state.light?.85:.32;scene.environmentIntensity=state.light?.30:.16;sun.intensity=state.light?1.9:.7;lights.forEach(l=>l.intensity=state.light?5.8*state.brightness:0);$('#light-toggle').textContent=state.light?'Свет включён':'Вечер без света';$('#light-toggle').setAttribute('aria-pressed',String(state.light));}
+$('#brightness').oninput=e=>{state.brightness=Number(e.target.value)/100;$('#brightness-value').textContent=e.target.value+'%';lightMode();};
+$('#quality').onchange=e=>realistic.setEnabled(e.target.checked);
 document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));document.querySelectorAll('[data-variant]').forEach(b=>b.onclick=()=>loadVariant(b.dataset.variant));
 $('#cutaway').onchange=()=>{state.cut=$('#cutaway').checked;sceneMode();};$('#light-toggle').onclick=()=>{state.light=!state.light;lightMode();};
 $('#menu').onclick=()=>document.body.classList.add('menu-open');$('#collapse').onclick=()=>document.body.classList.remove('menu-open');
@@ -72,7 +78,12 @@ document.querySelectorAll('[data-choose]').forEach(b=>b.onclick=()=>{$('#compare
 function gallery(){const grid=$('#gallery-grid');grid.replaceChildren();$('#gallery-caption').textContent='Вариант '+state.variant;for(const id of ['kitchen','upper','lower','corridor','bath5','bath65']){const room=data.rooms.find(r=>r.id===id),figure=document.createElement('figure'),img=document.createElement('img'),button=document.createElement('button');img.src=import.meta.env.BASE_URL+'views/'+state.variant+'_'+id+'.jpg';img.alt=roomName(room)+' / эскизная модель';img.loading='lazy';button.textContent=roomName(room);button.onclick=()=>{$('#gallery').close();selectRoom(id);};figure.append(img,button);grid.append(figure);}}
 const inputTarget=e=>['INPUT','SELECT','TEXTAREA','BUTTON'].includes(e.target.tagName)||document.querySelector('dialog[open]');
 window.addEventListener('keydown',e=>{if(state.mode!=='walk'||inputTarget(e))return;if(['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowLeft','ArrowDown','ArrowRight'].includes(e.code)){e.preventDefault();keys.add(e.code);}});window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',clearInput);document.addEventListener('visibilitychange',clearInput);
-for(const b of document.querySelectorAll('[data-move]')){b.onpointerdown=e=>{e.preventDefault();b.setPointerCapture(e.pointerId);touch.add(b.dataset.move);};b.onpointerup=b.onpointercancel=b.onlostpointercapture=()=>touch.delete(b.dataset.move);}
+const held=new Map();
+for(const b of document.querySelectorAll('[data-move]')){b.onpointerdown=e=>{e.preventDefault();b.setPointerCapture(e.pointerId);step(b.dataset.move,.35);held.set(b,setTimeout(()=>touch.add(b.dataset.move),300));};b.onpointerup=b.onpointercancel=b.onlostpointercapture=()=>{clearTimeout(held.get(b));held.delete(b);touch.delete(b.dataset.move);};}
+for(const b of document.querySelectorAll('[data-turn]'))b.onclick=()=>{state.yaw+=Number(b.dataset.turn)*Math.PI/12;camera.rotation.set(state.pitch,state.yaw,0,'YXZ');updateMarker();};
+const roomOrder=['kitchen','corridor','upper','lower','bath5','bath65'];
+for(const b of document.querySelectorAll('[data-room-shift]'))b.onclick=()=>selectRoom(roomOrder[(roomOrder.indexOf(state.room)+Number(b.dataset.roomShift)+roomOrder.length)%roomOrder.length]);
+function step(direction,distance=.35){if(state.mode!=='walk')return;touch.add(direction);for(let i=0;i<10;i++)move(distance/1.35/10);touch.delete(direction);updateMarker();}
 let pointer=null;
 canvas.addEventListener('pointerdown',e=>{if(!state.loaded)return;canvas.focus({preventScroll:true});pointer={x:e.clientX,y:e.clientY,ox:e.clientX,oy:e.clientY,id:e.pointerId};if(state.mode==='walk')canvas.setPointerCapture(e.pointerId);});
 canvas.addEventListener('pointermove',e=>{if(!pointer||pointer.id!==e.pointerId)return;if(state.mode==='walk'){state.yaw-=(e.clientX-pointer.x)*.004;state.pitch=THREE.MathUtils.clamp(state.pitch-(e.clientY-pointer.y)*.003,-1.15,1.15);camera.rotation.set(state.pitch,state.yaw,0,'YXZ');}pointer.x=e.clientX;pointer.y=e.clientY;});
@@ -83,8 +94,8 @@ function move(dt){
  for(const[axis,delta]of [['x',dx],['z',dz]]){const next=camera.position.clone();next[axis]+=delta;const p=source(next);if(!blocked(...p))camera.position.copy(next);}
  const p=source(camera.position),room=data.rooms.find(r=>inside(...p,r.polygon));if(room&&room.id!==state.room){state.room=room.id;interaction.chooseRoom(room.id);updateUI();}
 }
-function resize(){const b=stage.getBoundingClientRect();renderer.setSize(b.width,b.height,false);camera.aspect=b.width/b.height;camera.updateProjectionMatrix();if(state.loaded&&state.mode!=='walk')overview();}new ResizeObserver(resize).observe(stage);resize();
-let last=performance.now();function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/1000,.04);last=now;if(!state.loaded)return;interaction.tick(dt,state.mode==='walk');if(state.mode==='walk'&&!document.querySelector('dialog[open]')){move(dt);updateMarker();}else if(state.mode!=='walk')controls.update();renderer.render(scene,camera);}requestAnimationFrame(frame);
+function resize(){const b=stage.getBoundingClientRect();renderer.setSize(b.width,b.height,false);realistic.resize(b.width,b.height);camera.aspect=b.width/b.height;camera.updateProjectionMatrix();if(state.loaded&&state.mode!=='walk')overview();}new ResizeObserver(resize).observe(stage);resize();
+let last=performance.now();function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/1000,.04);last=now;if(!state.loaded)return;interaction.tick(dt,state.mode==='walk');if(state.mode==='walk'&&!document.querySelector('dialog[open]')){move(dt);updateMarker();}else if(state.mode!=='walk')controls.update();realistic.render(state.mode==='walk');}requestAnimationFrame(frame);
 try{data=await(await fetch(import.meta.env.BASE_URL+'project/project.json')).json();for(const room of data.rooms){const l=new THREE.PointLight('#fff0d3',5.8,7,2);l.position.copy(world(room.center,2.8));scene.add(l);lights.push(l);}await loadVariant('B');}catch(error){console.error(error);$('#load-message').textContent='Не удалось загрузить данные проекта. Обновите страницу.';}
 // Read-only diagnostics and navigation commands support repeatable browser checks.
-window.sobytie={state,selectRoom,setMode,loadVariant,capture:()=>{renderer.render(scene,camera);return canvas.toDataURL('image/jpeg',.9);},diagnostics:()=>({variant:state.variant,mode:state.mode,loaded:state.loaded,room:state.room,camera:camera.position.toArray(),source:source(camera.position),blocked:nav?blocked(...source(camera.position)):null,objects:interaction?.diagnostics(),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles}),safePositions:()=>Object.fromEntries(data.rooms.map(r=>[r.id,nav.spawn(r.id)]))};
+window.sobytie={state,selectRoom,setMode,loadVariant,step,setAll:value=>interaction.setAll(value),capture:()=>{realistic.render(state.mode==='walk');return canvas.toDataURL('image/jpeg',.92);},diagnostics:()=>({variant:state.variant,mode:state.mode,loaded:state.loaded,room:state.room,camera:camera.position.toArray(),source:source(camera.position),blocked:nav?blocked(...source(camera.position)):null,objects:interaction?.diagnostics(),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles}),safePositions:()=>Object.fromEntries(data.rooms.map(r=>[r.id,nav.spawn(r.id)]))};
