@@ -3,7 +3,7 @@ export function interactions(model,camera,variant,onMessage){
  const rigs=[];model.traverse(node=>{if(node.userData.sobytie){const meta=JSON.parse(node.userData.sobytie);node.userData.restPosition??=node.position.clone();node.userData.restRotation??=node.quaternion.clone();const r={node,...meta,value:meta.initial||0,target:meta.initial||0,basePosition:node.userData.restPosition.clone(),baseRotation:node.userData.restRotation.clone()};rigs.push(r);node.traverse(c=>c.userData.interactionId=meta.id);}});
  let chosen=rigs[0];const select=document.querySelector('#object-select'),slider=document.querySelector('#opening'),label=document.querySelector('#opening-label');select.replaceChildren();
  rigs.forEach(r=>{const option=document.createElement('option');option.value=r.id;option.textContent=r.label;select.append(option);});
- const key='sobytie-P03-T02-'+variant;
+ const key='sobytie-P04-T03-'+variant;
  const persist=()=>{try{localStorage.setItem(key,JSON.stringify(Object.fromEntries(rigs.map(r=>[r.id,r.target]))));}catch{}};
  function sync(){if(!chosen)return;select.value=chosen.id;slider.value=Math.round(chosen.target*100);label.textContent=slider.value+'%';}
  function choose(id){chosen=rigs.find(r=>r.id===id)||rigs[0];sync();}

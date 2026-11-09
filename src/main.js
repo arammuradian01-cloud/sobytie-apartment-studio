@@ -1,4 +1,5 @@
 import './style.css';
+import {setupCatalog} from './catalog.js';
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
@@ -34,7 +35,7 @@ function clearInput(){keys.clear();touch.clear();for(const timer of held.values(
 function overview(){const center=new THREE.Vector3(7.2,0,-3.7),top=state.mode==='top',direction=(top?new THREE.Vector3(0,1,.0001):new THREE.Vector3(.28,.85,.65)).normalize();const dist=Math.max(8/(Math.tan(THREE.MathUtils.degToRad(21))*camera.aspect),4.6/Math.tan(THREE.MathUtils.degToRad(21)))*1.32;controls.target.copy(center);camera.position.copy(center).addScaledVector(direction,dist);camera.fov=42;camera.updateProjectionMatrix();camera.lookAt(center);controls.update();}
 function spawn(roomId){
  const p=nav.spawn(roomId,(x,y)=>{const w=world([x,y]);return interaction?.blocked(w.x,w.z);});if(!p){message('Нет свободной точки входа. Откройте двери в панели управления.');return false;}
- camera.position.copy(world(p,1.6));const targets={kitchen:[177,334],corridor:[440,315],upper:[540,235],lower:[610,360],bath5:[395,274],bath65:[330,383]};camera.lookAt(world(targets[roomId],1.05));const e=new THREE.Euler().setFromQuaternion(camera.quaternion,'YXZ');state.yaw=e.y;state.pitch=e.x;return true;
+ camera.position.copy(world(p,1.6));const targets={kitchen:[177,334],corridor:[440,315],upper:[540,235],lower:[610,360],bath5:[404,224],bath65:[348,382]};camera.lookAt(world(targets[roomId],1.05));const e=new THREE.Euler().setFromQuaternion(camera.quaternion,'YXZ');state.yaw=e.y;state.pitch=e.x;return true;
 }
 function updateMap(){if(!data)return;const map=$('#minimap');map.replaceChildren();const ns='http://www.w3.org/2000/svg';const e=(tag,attrs)=>{const n=document.createElementNS(ns,tag);for(const[k,v]of Object.entries(attrs))n.setAttribute(k,v);return n;};
  for(const r of data.rooms){const active=state.mode==='walk'&&r.id===state.room,p=e('polygon',{points:r.polygon.map(p=>p.join(',')).join(' '),fill:active?'#c8a8ab':r.id===data.variants[state.variant].children_room?'#e6d6d6':'#e5ded0',stroke:'#897a6e','stroke-width':2,'data-room':r.id,tabindex:0,role:'button','aria-label':roomName(r)});p.addEventListener('click',()=>selectRoom(r.id));p.addEventListener('keydown',ev=>{if(ev.key==='Enter')selectRoom(r.id);});map.append(p);}
@@ -59,7 +60,7 @@ function navigationUI(){const rooms=$('#rooms');rooms.replaceChildren();for(cons
 async function loadVariant(key){
  const token=++generation;state.loaded=false;clearInput();$('#loading').hidden=false;$('#load-message').textContent='Загружается вариант '+key;document.querySelectorAll('[data-variant]').forEach(b=>b.disabled=true);
  try{
-  if(!cache.has(key)){const gltf=await new GLTFLoader().loadAsync(import.meta.env.BASE_URL+'models/SOBYTIE_'+key+'.glb?v=P03T02');cache.set(key,optimize(gltf.scene));}
+  if(!cache.has(key)){const gltf=await new GLTFLoader().loadAsync(import.meta.env.BASE_URL+'models/SOBYTIE_'+key+'.glb?v=P04T03');cache.set(key,optimize(gltf.scene));}
   if(token!==generation)return;if(model)scene.remove(model);model=cache.get(key);scene.add(model);state.variant=key;nav=navigation(data,key);interaction=interactions(model,camera,key,message);meshes=[];model.traverse(m=>{if(m.isMesh)meshes.push(m);});
   state.loaded=true;navigationUI();setMode(state.mode);$('#loading').hidden=true;message('Вариант '+key+' · эскизная модель');
  }catch(error){console.error(error);$('#load-message').textContent='Не удалось загрузить модель. Обновите страницу или откройте схемы в боковом меню.';message('Ошибка загрузки 3D');}
@@ -73,7 +74,7 @@ $('#cutaway').onchange=()=>{state.cut=$('#cutaway').checked;sceneMode();};$('#li
 $('#menu').onclick=()=>document.body.classList.add('menu-open');$('#collapse').onclick=()=>document.body.classList.remove('menu-open');
 $('#objects-toggle').onclick=()=>{$('#objects').hidden=!$('#objects').hidden;$('#objects-toggle').setAttribute('aria-expanded',String(!$('#objects').hidden));};$('#objects-close').onclick=()=>{$('#objects').hidden=true;$('#objects-toggle').setAttribute('aria-expanded','false');};
 $('#map-toggle').onclick=()=>{$('#minimap').hidden=!$('#minimap').hidden;$('#map-toggle').setAttribute('aria-expanded',String(!$('#minimap').hidden));};
-for(const id of ['compare','docs','help','gallery']){$('#'+id+'-open').onclick=()=>{clearInput();if(id==='gallery')gallery();$('#'+id).showModal();};$('#'+id+' .dialog-close').onclick=()=>$('#'+id).close();$('#'+id).addEventListener('click',e=>{if(e.target===e.currentTarget){const b=e.target.getBoundingClientRect();if(e.clientX<b.left||e.clientX>b.right||e.clientY<b.top||e.clientY>b.bottom)e.target.close();}});}
+for(const id of ['compare','docs','help','gallery','catalog']){$('#'+id+'-open').onclick=()=>{clearInput();if(id==='gallery')gallery();$('#'+id).showModal();};$('#'+id+' .dialog-close').onclick=()=>$('#'+id).close();$('#'+id).addEventListener('click',e=>{if(e.target===e.currentTarget){const b=e.target.getBoundingClientRect();if(e.clientX<b.left||e.clientX>b.right||e.clientY<b.top||e.clientY>b.bottom)e.target.close();}});}
 document.querySelectorAll('[data-choose]').forEach(b=>b.onclick=()=>{$('#compare').close();document.body.classList.remove('menu-open');loadVariant(b.dataset.choose);});
 function gallery(){const grid=$('#gallery-grid');grid.replaceChildren();$('#gallery-caption').textContent='Вариант '+state.variant;for(const id of ['kitchen','upper','lower','corridor','bath5','bath65']){const room=data.rooms.find(r=>r.id===id),figure=document.createElement('figure'),img=document.createElement('img'),button=document.createElement('button');img.src=import.meta.env.BASE_URL+'views/'+state.variant+'_'+id+'.jpg';img.alt=roomName(room)+' / эскизная модель';img.loading='lazy';button.textContent=roomName(room);button.onclick=()=>{$('#gallery').close();selectRoom(id);};figure.append(img,button);grid.append(figure);}}
 const inputTarget=e=>['INPUT','SELECT','TEXTAREA','BUTTON'].includes(e.target.tagName)||document.querySelector('dialog[open]');
@@ -99,3 +100,5 @@ let last=performance.now();function frame(now){requestAnimationFrame(frame);cons
 try{data=await(await fetch(import.meta.env.BASE_URL+'project/project.json')).json();for(const room of data.rooms){const l=new THREE.PointLight('#fff0d3',5.8,7,2);l.position.copy(world(room.center,2.8));scene.add(l);lights.push(l);}await loadVariant('B');}catch(error){console.error(error);$('#load-message').textContent='Не удалось загрузить данные проекта. Обновите страницу.';}
 // Read-only diagnostics and navigation commands support repeatable browser checks.
 window.sobytie={state,selectRoom,setMode,loadVariant,step,setAll:value=>interaction.setAll(value),capture:()=>{realistic.render(state.mode==='walk');return canvas.toDataURL('image/jpeg',.92);},diagnostics:()=>({variant:state.variant,mode:state.mode,loaded:state.loaded,room:state.room,camera:camera.position.toArray(),source:source(camera.position),blocked:nav?blocked(...source(camera.position)):null,objects:interaction?.diagnostics(),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles}),safePositions:()=>Object.fromEntries(data.rooms.map(r=>[r.id,nav.spawn(r.id)]))};
+
+setupCatalog().catch(error=>{console.error(error);document.querySelector("#catalog-body").textContent="Не удалось загрузить подбор. Скачайте ведомость в разделе файлов.";});
