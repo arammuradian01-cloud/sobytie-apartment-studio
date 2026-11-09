@@ -8,7 +8,7 @@ export function navigation(data,variant){
  function blocked(x,y){
   if(!onFloor(x,y))return true;
   for(let a=0;a<16;a++){const angle=a*Math.PI/8;if(!onFloor(x+radius*Math.cos(angle),y+radius*Math.sin(angle)))return true;}
-  return bodies.some(o=>polygonCollision(x,y,o.polygon,radius));
+  return data.walls.some(p=>polygonCollision(x,y,p,radius))||bodies.some(o=>polygonCollision(x,y,o.polygon,radius));
  }
  function spawn(roomId,extra=()=>false){
   const room=data.rooms.find(r=>r.id===roomId),[x,y]=room.center;

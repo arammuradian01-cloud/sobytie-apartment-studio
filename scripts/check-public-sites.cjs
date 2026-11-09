@@ -35,8 +35,10 @@ fs.mkdirSync(out, { recursive: true });
       result.passwordFields = await page.locator('input[type="password"]').count();
       if (name.startsWith('sobytie')) {
         if (result.loaded.exterior.revision !== 'E03' || !result.loaded.exterior.photo.loaded) throw new Error('E03 panorama missing');
-        const layout = await page.evaluate(async () => (await fetch(new URL('project/project.json?v=T05E03',location.href))).json());
+        const layout = await page.evaluate(async () => (await fetch(new URL('project/project.json?v=T06E03',location.href))).json());
         if (Object.values(layout.variants).some(v => v.objects.some(o => o.id === 'H2'))) throw new Error('Corridor bench still present');
+        if(layout.version !== 'P04-T06' || !layout.doors.some(d=>d.id==='entry_door') || !layout.open_connections?.length) throw new Error('T06 architecture missing');
+        for(const v of Object.values(layout.variants)){const k=v.objects.find(o=>o.id==='K1'), f=v.objects.find(o=>o.id==='K2');if(Math.abs(Math.hypot(f.x-k.x,f.y-k.y)*layout.scale_m_per_svg_unit-k.w)>.001 || f.angle!==k.angle) throw new Error('Detached fridge');}
         await page.evaluate(() => window.sobytie.selectRoom('corridor'));
         const beforeClick = await page.evaluate(() => window.sobytie.diagnostics().camera);
         const box = await page.locator('#scene').boundingBox();
