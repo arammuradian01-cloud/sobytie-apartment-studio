@@ -14,7 +14,7 @@ try{renderer=new THREE.WebGLRenderer({canvas,antialias:true});}catch{ $('#load-m
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=.88;renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFShadowMap;renderer.localClippingEnabled=true;
 const scene=new THREE.Scene();scene.background=new THREE.Color('#e9e5df');
 const camera=new THREE.PerspectiveCamera(42,1,.025,150);
-const controls=new OrbitControls(camera,canvas);controls.enableDamping=true;controls.dampingFactor=.09;controls.minDistance=4;controls.maxDistance=40;controls.maxPolarAngle=Math.PI*.48;
+const controls=new OrbitControls(camera,canvas);controls.enableDamping=true;controls.dampingFactor=.09;controls.minDistance=4;controls.maxDistance=100;controls.maxPolarAngle=Math.PI*.48;
 const pmrem=new THREE.PMREMGenerator(renderer),env=new RoomEnvironment(),environment=pmrem.fromScene(env,.04);scene.environment=environment.texture;scene.environmentIntensity=.30;env.dispose();pmrem.dispose();
 const hemisphere=new THREE.HemisphereLight('#fffaf1','#a99c87',1.0);scene.add(hemisphere);
 const sun=new THREE.DirectionalLight('#fff1d7',1.9);sun.position.set(-5,15,4);sun.target.position.set(7,0,-3.5);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-13,right:13,top:10,bottom:-10,near:.5,far:45});sun.shadow.bias=-.0001;sun.shadow.normalBias=.025;scene.add(sun,sun.target);
