@@ -1,7 +1,7 @@
 const money=n=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:0}).format(n)+' ₽';
 export async function setupCatalog(){
  const dialog=document.querySelector('#catalog'),body=document.querySelector('#catalog-body');
- const data=await(await fetch(import.meta.env.BASE_URL+'project/catalog.json')).json();
+ const data=await(await fetch(import.meta.env.BASE_URL+'project/catalog.json?v=T05E03')).json();
  let edits={};try{edits=JSON.parse(localStorage.getItem('sobytie-P04-budget')||'{}');}catch{}
  const val=(r,k)=>edits[r.id]?.[k]??r[k];let filter='Все';
  const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};

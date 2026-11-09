@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {Sky} from 'three/addons/objects/Sky.js';
 import {calibration,sections,mapToWorld,geoToWorld} from './exterior-data.js';
+import {createPhotoExterior} from './photo-exterior.js';
 
 export async function createExterior(scene){
  const root=new THREE.Group();root.name='SOBYTIE_E02_projected_surroundings';scene.add(root);
@@ -105,17 +106,29 @@ export async function createExterior(scene){
  // Tree rows supply real mapped alignments; exact spacing and crown size remain illustrative.
  for(const f of landscape.features.filter(f=>f.tags.natural==='tree_row'))for(let i=1;i<f.points.length;i++){const a=geoToWorld(...f.points[i-1]),b=geoToWorld(...f.points[i]),n=Math.floor(Math.hypot(b[0]-a[0],b[1]-a[1])/7);for(let j=0;j<=n;j++){const t=j/Math.max(1,n);addTree(a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,j);}}
  for(const [geos,mat]of [[roadGeos,new THREE.MeshStandardMaterial({color:'#777b7a',roughness:1})],[footGeos,pavement],[trunkGeos,bark],[leafGeos,foliage]])if(geos.length){const m=new THREE.Mesh(mergeGeometries(geos),mat);m.receiveShadow=true;m.castShadow=geos===leafGeos;root.add(m);geos.forEach(g=>g.dispose());}
- let visible=false,phase='handover';
- function setVisible(value){visible=value;root.visible=value;scene.fog=value?new THREE.Fog('#b6c5ce',170,700):null;}
- function setPhase(value){phase=value;for(const item of later){item.edges.visible=value==='complete';for(const m of item.bodies)m.material=value==='handover'?construction:plaster;}}
+ const photo=await createPhotoExterior(scene);
+ let visible=false,phase='photo',lastSun;
+ function setVisible(value){
+  visible=value;root.visible=value;photo.setVisible(value&&phase==='photo');
+  scene.fog=value&&phase!=='photo'?new THREE.Fog('#b6c5ce',170,700):null;
+ }
+ function setPhase(value){
+  phase=['photo','handover','complete'].includes(value)?value:'photo';
+  for(const item of later){item.edges.visible=phase==='complete';for(const m of item.bodies)m.material=phase==='handover'?construction:plaster;}
+  // Keep opaque building masses in the shadow pass, but don't draw them over
+  // the photographic backdrop. InteriorAO also excludes depthWrite=false meshes.
+  root.traverse(m=>{if(m.isMesh&&m!==sky){for(const mat of Array.isArray(m.material)?m.material:[m.material]){mat.colorWrite=phase!=='photo';mat.depthWrite=phase!=='photo';}}});
+  setVisible(visible);if(lastSun)updateSun(lastSun);else sky.visible=phase!=='photo';
+ }
  function updateSun(s){
+  lastSun=s;photo.updateSun(s);
   const v=new THREE.Vector3(...s.direction);su.sunPosition.value.copy(v);sky.material.uniformsNeedUpdate=true;
   foliage.color.set(new Date(s.date+'T12:00:00Z').getUTCMonth()<3||new Date(s.date+'T12:00:00Z').getUTCMonth()>10?'#898675':'#58724d');
   const daylight=s.daylight;if(scene.fog)scene.fog.color.set(s.altitude>0?'#b6c5ce':s.altitude>-7?'#887b85':'#101a2b');sky.material.uniforms.rayleigh.value=1.7;
   // At night use a neutral dark sky. Daylight mode retains physical sky scattering.
-  sky.visible=s.altitude>-7;
+  sky.visible=phase!=='photo'&&s.altitude>-7;
  }
  function occlusion(point,direction){root.updateMatrixWorld(true);const ray=new THREE.Raycaster(new THREE.Vector3(...point),new THREE.Vector3(...direction),.1,800);return ray.intersectObjects(blockers,false).length>0;}
- setVisible(false);setPhase('handover');
- return {setVisible,setPhase,updateSun,occlusion,diagnostics:()=>({revision:'E02',visible,phase,sectionCount:sections.length,neighborCount:neighbors.buildings.length,source:'developer-site-plan',orientationApproximate:true})};
+ setVisible(false);setPhase('photo');
+ return {setVisible,setPhase,updateSun,occlusion,diagnostics:()=>({revision:'E03',visible,phase,photo:photo.diagnostics(),sectionCount:sections.length,neighborCount:neighbors.buildings.length,source:'developer-panorama-and-site-plan',orientationApproximate:true})};
 }

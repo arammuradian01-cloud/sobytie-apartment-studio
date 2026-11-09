@@ -8,6 +8,7 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {navigation,inside} from './navigation.js';
+import {findWalkPath,clearSegment} from './walk-path.js';
 import {interactions} from './interactions.js';
 import {optimize} from './optimize.js';
 import {createRealisticRenderer} from './realistic-renderer.js';
@@ -30,14 +31,35 @@ const sun=new THREE.DirectionalLight('#fff1d7',1.9);sun.position.set(-5,15,4);su
 const ground=new THREE.Mesh(new THREE.PlaneGeometry(140,140),new THREE.MeshStandardMaterial({color:'#e9e5df',roughness:1}));ground.rotation.x=-Math.PI/2;ground.position.y=-.14;ground.receiveShadow=true;scene.add(ground);
 const clip=new THREE.Plane(new THREE.Vector3(0,-1,0),1.1),keys=new Set(),touch=new Set(),cache=new Map();
 let data,model,nav,interaction,exterior,solar,meshes=[],lights=[],generation=0;
-let sunPlaying=false;
+let sunPlaying=false,walkRoute=[];
+const destination=new THREE.Mesh(new THREE.RingGeometry(.075,.11,32),new THREE.MeshBasicMaterial({color:'#8e5668',transparent:true,opacity:.8,depthWrite:false,side:THREE.DoubleSide}));
+destination.rotation.x=-Math.PI/2;destination.visible=false;scene.add(destination);
+function stopWalking(){walkRoute=[];destination.visible=false;}
+function walkTo(point){
+ if(state.mode!=='walk'||!state.loaded)return false;
+ const route=findWalkPath(source(camera.position),point,blocked,[108,145,634,429]);
+ if(!route){stopWalking();message('Нет свободного пути. Откройте дверь или выберите другую точку на полу.');return false;}
+ walkRoute=route;destination.position.copy(world(point,.018));destination.visible=true;return true;
+}
+function followWalk(dt){
+ if(!walkRoute.length)return;
+ const target=world(walkRoute[0],1.6),delta=target.clone().sub(camera.position),distance=delta.length();
+ if(distance<.035){walkRoute.shift();if(!walkRoute.length)stopWalking();return;}
+ const next=camera.position.clone().addScaledVector(delta,Math.min(distance,dt*1.15)/distance);
+ if(!clearSegment(source(camera.position),source(next),blocked)){stopWalking();message('Проход занят. Выберите новую точку.');return;}
+ camera.position.copy(next);
+ const yaw=Math.atan2(-delta.x,-delta.z),diff=Math.atan2(Math.sin(yaw-state.yaw),Math.cos(yaw-state.yaw));
+ state.yaw+=diff*Math.min(1,dt*5);state.pitch*=Math.max(0,1-dt*4);camera.rotation.set(state.pitch,state.yaw,0,'YXZ');updateCurrentRoom();
+}
+function updateCurrentRoom(){const p=source(camera.position),room=data.rooms.find(r=>inside(...p,r.polygon));if(room&&room.id!==state.room){state.room=room.id;interaction.chooseRoom(room.id);updateUI();}}
+
 let toastTimer,alternate=false;
 const message=text=>{status.textContent=text;status.classList.add('has-message');clearTimeout(toastTimer);toastTimer=setTimeout(()=>status.classList.remove('has-message'),5000);};
 const world=(p,z=0)=>new THREE.Vector3((p[0]-data.origin[0])*data.scale_m_per_svg_unit,z,(p[1]-data.origin[1])*data.scale_m_per_svg_unit);
 const source=v=>[v.x/data.scale_m_per_svg_unit+data.origin[0],v.z/data.scale_m_per_svg_unit+data.origin[1]];
 function blocked(x,y){const w=world([x,y]);return nav.blocked(x,y)||interaction?.blocked(w.x,w.z);}
 function roomName(r){const v=data.variants[state.variant];if(r.id==='bath65')return state.variant==='B'?'Ванная при детской':'Ванная при спальне';return r.id===v.children_room?'Общая детская':r.id===v.parents_room?'Спальня родителей':r.name;}
-function clearInput(){keys.clear();touch.clear();for(const timer of held.values())clearTimeout(timer);held.clear();}
+function clearInput(){stopWalking();keys.clear();touch.clear();for(const timer of held.values())clearTimeout(timer);held.clear();}
 function overview(){const center=new THREE.Vector3(7.2,0,-3.7),top=state.mode==='top',direction=(top?new THREE.Vector3(0,1,.0001):new THREE.Vector3(.28,.85,.65)).normalize();const dist=Math.max(8/(Math.tan(THREE.MathUtils.degToRad(21))*camera.aspect),4.6/Math.tan(THREE.MathUtils.degToRad(21)))*1.32;controls.target.copy(center);camera.position.copy(center).addScaledVector(direction,dist);camera.fov=42;camera.updateProjectionMatrix();camera.lookAt(center);controls.update();}
 function spawn(roomId){
  alternate=false;$('#alternate-view').textContent='Места для занятий';
@@ -59,7 +81,7 @@ function updateUI(){
  document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===state.mode||(b.dataset.mode==='overview'&&state.mode==='top'))));
  document.querySelectorAll('[data-variant]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.variant===state.variant)));
  const r=data.rooms.find(r=>r.id===state.room);$('#view-name').textContent=['walk','gallery'].includes(state.mode)?roomName(r):state.mode==='top'?'Расстановка сверху':'Квартира целиком';$('#view-caption').textContent=state.mode==='gallery'?'Образ интерьера V01 · вариант '+state.variant:state.mode==='walk'?'На уровне глаз · 1,60 м':'Вариант '+state.variant+' · объём и расстановка';
- $('#hint').textContent=state.mode==='walk'?'Потяните экран, чтобы оглядеться. WASD, стрелки или кнопки — движение.':'Потяните, чтобы повернуть. Колёсико или два пальца приближают.';
+ $('#hint').textContent=state.mode==='walk'?'Нажмите на свободный пол, чтобы подойти. Потяните экран — оглядеться. WASD — движение.':'Потяните, чтобы повернуть. Колёсико или два пальца приближают.';
  document.querySelectorAll('#rooms button').forEach(b=>b.setAttribute('aria-current',String(['walk','gallery'].includes(state.mode)&&b.dataset.room===state.room)));updateMap();$('#room-progress').textContent=(roomOrder.indexOf(state.room)+1)+' / 6';$('#alternate-view').hidden=state.mode!=='walk'||state.variant!=='B'||state.room!=='lower';$('#window-view').hidden=state.mode!=='walk'||!['kitchen','upper','lower'].includes(state.room);$('#sun-panel').hidden=state.mode==='gallery';updateSunDescription();
 }
 function setMode(mode){if(!state.loaded)return;clearInput();state.mode=mode;if(mode==='walk'){camera.fov=camera.aspect<.8?82:68;camera.updateProjectionMatrix();if(!spawn(state.room)){state.mode='overview';overview();}}else if(mode!=='gallery')overview();sceneMode();updateUI();if(mode==='gallery')gallery();if(state.mode==='walk')canvas.focus({preventScroll:true});}
@@ -68,7 +90,7 @@ function navigationUI(){const rooms=$('#rooms');rooms.replaceChildren();for(cons
 async function loadVariant(key){
  const token=++generation;state.loaded=false;clearInput();$('#loading').hidden=false;$('#load-message').textContent='Загружается вариант '+key;document.querySelectorAll('[data-variant]').forEach(b=>b.disabled=true);
  try{
-  if(!cache.has(key)){const gltf=await new GLTFLoader().loadAsync(import.meta.env.BASE_URL+'models/SOBYTIE_'+key+'.glb?v=P04T03');cache.set(key,optimize(gltf.scene));}
+  if(!cache.has(key)){const gltf=await new GLTFLoader().loadAsync(import.meta.env.BASE_URL+'models/SOBYTIE_'+key+'.glb?v=P04T05');cache.set(key,optimize(gltf.scene));}
   if(token!==generation)return;if(model)scene.remove(model);model=cache.get(key);scene.add(model);state.variant=key;nav=navigation(data,key);interaction=interactions(model,camera,key,message);meshes=[];model.traverse(m=>{if(m.isMesh)meshes.push(m);});
   state.loaded=true;navigationUI();setMode(state.mode);$('#loading').hidden=true;message('Вариант '+key+' · эскизная модель');
  }catch(error){console.error(error);$('#load-message').textContent='Не удалось загрузить модель. Обновите страницу или откройте схемы в боковом меню.';message('Ошибка загрузки 3D');}
@@ -99,15 +121,15 @@ function applySun(){
 $('#sun-time').oninput=$('#sun-date').oninput=()=>{sunPlaying=false;$('#sun-play').textContent='▶';$('#sun-play').setAttribute('aria-pressed','false');applySun();};
 for(const b of document.querySelectorAll('[data-sun-date]'))b.onclick=()=>{$('#sun-date').value=$('#sun-date').value.slice(0,4)+'-'+b.dataset.sunDate;applySun();};
 $('#sun-play').onclick=()=>{sunPlaying=!sunPlaying;$('#sun-play').textContent=sunPlaying?'Ⅱ':'▶';$('#sun-play').setAttribute('aria-pressed',String(sunPlaying));};
-$('#exterior-phase').onchange=e=>{exterior?.setPhase(e.target.value);updateSunDescription();};
+$('#exterior-phase').onchange=e=>{exterior?.setPhase(e.target.value);$('#exterior-caption').hidden=e.target.value!=='photo';updateSunDescription();};
 function windowView(){
  if(!['kitchen','upper','lower'].includes(state.room))return;
  if(state.mode!=='walk')setMode('walk');
  const target={kitchen:[118,356],upper:[589,247],lower:[627,367]}[state.room];
- const sign=state.room==='kitchen'?1:-1;let position;
- for(const distance of [32,45,60,75,95]){for(const dy of [0,-15,15,-30,30]){const p=[target[0]+sign*distance,target[1]+dy];if(!blocked(...p)){position=p;break;}}if(position)break;}
+ stopWalking();const sign=state.room==='kitchen'?1:-1;let position;
+ for(const dy of [0,-15,15,-30,30]){for(const distance of [32,45,60,75,95]){const p=[target[0]+sign*distance,target[1]+dy];if(!blocked(...p)){position=p;break;}}if(position)break;}
  if(position)camera.position.copy(world(position,1.6));
- camera.lookAt(world([target[0]-sign*200,target[1]],1.6));const e=new THREE.Euler().setFromQuaternion(camera.quaternion,'YXZ');state.yaw=e.y;state.pitch=e.x;updateMarker();message('Проектное окружение · 10-й этаж. Солнце — в панели времени.');
+ camera.lookAt(world([target[0]-sign*200,target[1]],1.6));const e=new THREE.Euler().setFromQuaternion(camera.quaternion,'YXZ');state.yaw=e.y;state.pitch=e.x;updateMarker();message('Вид из окна · фотореалистичный прогноз. Солнце — в панели времени.');
 }
 $('#window-view').onclick=windowView;
 $('#brightness').oninput=e=>{state.brightness=Number(e.target.value)/100;$('#brightness-value').textContent=e.target.value+'%';lightMode();};
@@ -122,7 +144,7 @@ $('#objects-toggle').onclick=()=>{$('#objects').hidden=!$('#objects').hidden;$('
 $('#map-toggle').onclick=()=>{$('#minimap').hidden=!$('#minimap').hidden;$('#map-toggle').setAttribute('aria-expanded',String(!$('#minimap').hidden));};
 for(const id of ['compare','docs','help','catalog','exterior']){$('#'+id+'-open').onclick=()=>{clearInput();$('#'+id).showModal();};$('#'+id+' .dialog-close').onclick=()=>$('#'+id).close();$('#'+id).addEventListener('click',e=>{if(e.target===e.currentTarget){const b=e.target.getBoundingClientRect();if(e.clientX<b.left||e.clientX>b.right||e.clientY<b.top||e.clientY>b.bottom)e.target.close();}});}
 document.querySelectorAll('[data-choose]').forEach(b=>b.onclick=()=>{$('#compare').close();setMenuOpen(false);loadVariant(b.dataset.choose);});
-function interiorPath(id){return import.meta.env.BASE_URL+'interiors/'+(['corridor','bath5','bath65'].includes(id)?'B':state.variant)+'_'+id+'.webp';}
+function interiorPath(id){return import.meta.env.BASE_URL+'interiors/'+(['corridor','bath5','bath65'].includes(id)?'B':state.variant)+'_'+id+'.webp?v=T05E03';}
 function gallery(){
  const room=data.rooms.find(r=>r.id===state.room),img=$('#interior-image');$('#interior-study').hidden=state.variant!=='B'||state.room!=='lower';$('#interior-study').textContent='Учебные места';
  img.src=interiorPath(state.room);img.alt=roomName(room)+' — образ интерьера V01, вариант '+state.variant;
@@ -131,7 +153,7 @@ function gallery(){
  for(const id of roomOrder){const r=data.rooms.find(r=>r.id===id),b=document.createElement('button'),im=document.createElement('img'),label=document.createElement('span');im.src=interiorPath(id);im.alt='';im.loading='lazy';label.textContent=roomName(r);b.append(im,label);b.setAttribute('aria-label',roomName(r));b.setAttribute('aria-current',String(id===state.room));b.onclick=()=>selectRoom(id);thumbs.append(b);}
  requestAnimationFrame(()=>thumbs.querySelector('[aria-current=true]')?.scrollIntoView({block:'nearest',inline:'center'}));
 }
-$('#interior-study').onclick=()=>{const study=!$('#interior-image').src.includes('_study');$('#interior-image').src=import.meta.env.BASE_URL+'interiors/B_lower'+(study?'_study':'')+'.webp';$('#interior-image').alt=study?'Два учебных места в общей детской — образ V01':'Общая детская — кровати и хранение, образ V01';$('#interior-study').textContent=study?'Кровати и хранение':'Учебные места';};
+$('#interior-study').onclick=()=>{const study=!$('#interior-image').src.includes('_study');$('#interior-image').src=import.meta.env.BASE_URL+'interiors/B_lower'+(study?'_study':'')+'.webp?v=T05E03';$('#interior-image').alt=study?'Два учебных места в общей детской — образ V01':'Общая детская — кровати и хранение, образ V01';$('#interior-study').textContent=study?'Кровати и хранение':'Учебные места';};
 $('#gallery-open').onclick=()=>{setMode('gallery');setMenuOpen(false);};
 $('#interior-prev').onclick=()=>selectRoom(roomOrder[(roomOrder.indexOf(state.room)+roomOrder.length-1)%roomOrder.length]);
 $('#interior-next').onclick=()=>selectRoom(roomOrder[(roomOrder.indexOf(state.room)+1)%roomOrder.length]);
@@ -143,27 +165,27 @@ function fullscreenLabel(){const expanded=!!document.fullscreenElement||document
 $('#fullscreen').onclick=async()=>{if(document.body.classList.contains('immersive')){document.body.classList.remove('immersive');fullscreenLabel();return;}try{if(document.fullscreenElement)await document.exitFullscreen();else if(document.documentElement.requestFullscreen)await document.documentElement.requestFullscreen();else throw new Error('Fullscreen unavailable');}catch{document.body.classList.add('immersive');message('Сцена развёрнута в окне браузера. Esc — свернуть.');}fullscreenLabel();};
 document.addEventListener('fullscreenchange',fullscreenLabel);window.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.body.classList.contains('immersive')){document.body.classList.remove('immersive');fullscreenLabel();}});
 const inputTarget=e=>['INPUT','SELECT','TEXTAREA','BUTTON'].includes(e.target.tagName)||document.querySelector('dialog[open]');
-window.addEventListener('keydown',e=>{if(state.mode!=='walk'||inputTarget(e))return;if(['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowLeft','ArrowDown','ArrowRight'].includes(e.code)){e.preventDefault();keys.add(e.code);}});window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',clearInput);document.addEventListener('visibilitychange',clearInput);
+window.addEventListener('keydown',e=>{if(state.mode!=='walk'||inputTarget(e))return;if(e.code==='Escape'){stopWalking();return;}if(['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowLeft','ArrowDown','ArrowRight'].includes(e.code)){e.preventDefault();stopWalking();keys.add(e.code);}});window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',clearInput);document.addEventListener('visibilitychange',clearInput);
 const held=new Map();
 for(const b of document.querySelectorAll('[data-move]')){b.onpointerdown=e=>{e.preventDefault();b.setPointerCapture(e.pointerId);step(b.dataset.move,.35);held.set(b,setTimeout(()=>touch.add(b.dataset.move),300));};b.onpointerup=b.onpointercancel=b.onlostpointercapture=()=>{clearTimeout(held.get(b));held.delete(b);touch.delete(b.dataset.move);};}
-for(const b of document.querySelectorAll('[data-turn]'))b.onclick=()=>{state.yaw+=Number(b.dataset.turn)*Math.PI/12;camera.rotation.set(state.pitch,state.yaw,0,'YXZ');updateMarker();};
+for(const b of document.querySelectorAll('[data-turn]'))b.onclick=()=>{stopWalking();state.yaw+=Number(b.dataset.turn)*Math.PI/12;camera.rotation.set(state.pitch,state.yaw,0,'YXZ');updateMarker();};
 
 for(const b of document.querySelectorAll('[data-room-shift]'))b.onclick=()=>selectRoom(roomOrder[(roomOrder.indexOf(state.room)+Number(b.dataset.roomShift)+roomOrder.length)%roomOrder.length]);
-function step(direction,distance=.35){if(state.mode!=='walk')return;touch.add(direction);for(let i=0;i<10;i++)move(distance/1.35/10);touch.delete(direction);updateMarker();}
+function step(direction,distance=.35){if(state.mode!=='walk')return;stopWalking();touch.add(direction);for(let i=0;i<10;i++)move(distance/1.35/10);touch.delete(direction);updateMarker();}
 let pointer=null;
-canvas.addEventListener('pointerdown',e=>{if(!state.loaded)return;canvas.focus({preventScroll:true});pointer={x:e.clientX,y:e.clientY,ox:e.clientX,oy:e.clientY,id:e.pointerId};if(state.mode==='walk')canvas.setPointerCapture(e.pointerId);});
+canvas.addEventListener('pointerdown',e=>{if(!state.loaded)return;canvas.focus({preventScroll:true});stopWalking();pointer={x:e.clientX,y:e.clientY,ox:e.clientX,oy:e.clientY,id:e.pointerId};if(state.mode==='walk')canvas.setPointerCapture(e.pointerId);});
 canvas.addEventListener('pointermove',e=>{if(!pointer||pointer.id!==e.pointerId)return;if(state.mode==='walk'){state.yaw-=(e.clientX-pointer.x)*.004;state.pitch=THREE.MathUtils.clamp(state.pitch-(e.clientY-pointer.y)*.003,-1.15,1.15);camera.rotation.set(state.pitch,state.yaw,0,'YXZ');}pointer.x=e.clientX;pointer.y=e.clientY;});
-canvas.addEventListener('pointerup',e=>{if(pointer&&Math.hypot(e.clientX-pointer.ox,e.clientY-pointer.oy)<5)interaction?.pick(e.clientX,e.clientY,canvas);pointer=null;});canvas.addEventListener('pointercancel',()=>pointer=null);
+canvas.addEventListener('pointerup',e=>{if(pointer&&pointer.id===e.pointerId&&Math.hypot(e.clientX-pointer.ox,e.clientY-pointer.oy)<5){const result=interaction?.pick(e.clientX,e.clientY,canvas);if(state.mode==='walk'&&!result?.handled&&result?.hit?.object.userData.kind==='floor')walkTo(source(result.hit.point));}pointer=null;});canvas.addEventListener('pointercancel',()=>pointer=null);
 function move(dt){
  let f=Number(keys.has('KeyW')||keys.has('ArrowUp')||touch.has('forward'))-Number(keys.has('KeyS')||keys.has('ArrowDown')||touch.has('back')),r=Number(keys.has('KeyD')||keys.has('ArrowRight')||touch.has('right'))-Number(keys.has('KeyA')||keys.has('ArrowLeft')||touch.has('left'));if(!f&&!r)return;
  const length=Math.hypot(f,r);f/=length;r/=length;const speed=1.35*dt,dx=(-Math.sin(state.yaw)*f+Math.cos(state.yaw)*r)*speed,dz=(-Math.cos(state.yaw)*f-Math.sin(state.yaw)*r)*speed;
  for(const[axis,delta]of [['x',dx],['z',dz]]){const next=camera.position.clone();next[axis]+=delta;const p=source(next);if(!blocked(...p))camera.position.copy(next);}
- const p=source(camera.position),room=data.rooms.find(r=>inside(...p,r.polygon));if(room&&room.id!==state.room){state.room=room.id;interaction.chooseRoom(room.id);updateUI();}
+ updateCurrentRoom();
 }
 function resize(){const b=stage.getBoundingClientRect();renderer.setSize(b.width,b.height,false);realistic.resize(b.width,b.height);camera.aspect=b.width/b.height;if(state.mode==='walk')camera.fov=camera.aspect<.8?82:68;camera.updateProjectionMatrix();if(state.loaded&&state.mode!=='walk')overview();}new ResizeObserver(resize).observe(stage);resize();
-let sunAccumulator=0,last=performance.now();function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/1000,.04);last=now;if(!state.loaded||state.mode==='gallery')return;if(sunPlaying){if(dt>0){sunAccumulator+=dt;if(sunAccumulator>.12){$('#sun-time').value=String((Number($('#sun-time').value)+5)%1440);applySun();sunAccumulator=0;}}}interaction.tick(dt,state.mode==='walk');if(state.mode==='walk'&&!document.querySelector('dialog[open]')){move(dt);updateMarker();}else if(state.mode!=='walk')controls.update();realistic.render(state.mode==='walk');}requestAnimationFrame(frame);
-try{data=await(await fetch(import.meta.env.BASE_URL+'project/project.json')).json();for(const room of data.rooms){const l=new THREE.PointLight('#fff0d3',5.8,7,2);l.position.copy(world(room.center,2.8));scene.add(l);lights.push(l);}exterior=await createExterior(scene);await loadVariant('B');lightMode();}catch(error){console.error(error);$('#load-message').textContent='Не удалось загрузить данные проекта. Обновите страницу.';}
+let sunAccumulator=0,last=performance.now();function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/1000,.04);last=now;if(!state.loaded||state.mode==='gallery')return;if(sunPlaying){if(dt>0){sunAccumulator+=dt;if(sunAccumulator>.12){$('#sun-time').value=String((Number($('#sun-time').value)+5)%1440);applySun();sunAccumulator=0;}}}interaction.tick(dt,state.mode==='walk');if(state.mode==='walk'&&!document.querySelector('dialog[open]')){move(dt);followWalk(dt);updateMarker();}else if(state.mode!=='walk')controls.update();realistic.render(state.mode==='walk');}requestAnimationFrame(frame);
+try{data=await(await fetch(import.meta.env.BASE_URL+'project/project.json?v=T05E03')).json();for(const room of data.rooms){const l=new THREE.PointLight('#fff0d3',5.8,7,2);l.position.copy(world(room.center,2.8));scene.add(l);lights.push(l);}exterior=await createExterior(scene);await loadVariant('B');lightMode();}catch(error){console.error(error);$('#load-message').textContent='Не удалось загрузить данные проекта. Обновите страницу.';}
 // Read-only diagnostics and navigation commands support repeatable browser checks.
-window.sobytie={state,selectRoom,setMode,loadVariant,step,windowView,setSun:(date,minutes)=>{$('#sun-date').value=date;$('#sun-time').value=String(minutes);applySun();},setAll:value=>interaction.setAll(value),capture:()=>{realistic.render(state.mode==='walk');return canvas.toDataURL('image/jpeg',.92);},diagnostics:()=>({solar,exterior:exterior?.diagnostics(),variant:state.variant,mode:state.mode,loaded:state.loaded,room:state.room,camera:camera.position.toArray(),source:source(camera.position),blocked:nav?blocked(...source(camera.position)):null,objects:interaction?.diagnostics(),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles}),safePositions:()=>Object.fromEntries(data.rooms.map(r=>[r.id,nav.spawn(r.id)]))};
+window.sobytie={walkTo,stopWalking,state,selectRoom,setMode,loadVariant,step,windowView,setSun:(date,minutes)=>{$('#sun-date').value=date;$('#sun-time').value=String(minutes);applySun();},setAll:value=>interaction.setAll(value),capture:()=>{realistic.render(state.mode==='walk');return canvas.toDataURL('image/jpeg',.92);},diagnostics:()=>({walk:{active:walkRoute.length>0,remaining:walkRoute.length,target:destination.visible?source(destination.position):null},solar,exterior:exterior?.diagnostics(),variant:state.variant,mode:state.mode,loaded:state.loaded,room:state.room,camera:camera.position.toArray(),source:source(camera.position),blocked:nav?blocked(...source(camera.position)):null,objects:interaction?.diagnostics(),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles}),safePositions:()=>Object.fromEntries(data.rooms.map(r=>[r.id,nav.spawn(r.id)]))};
 
 setupCatalog().catch(error=>{console.error(error);document.querySelector("#catalog-body").textContent="Не удалось загрузить подбор. Скачайте ведомость в разделе файлов.";});

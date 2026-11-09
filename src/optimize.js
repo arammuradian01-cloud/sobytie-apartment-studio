@@ -5,7 +5,7 @@ export function optimize(model){
  model.traverse(m=>{if(m.isMesh&&!Array.isArray(m.material))meshes.push(m);});
  for(const m of meshes){
   let parent=m.parent;while(parent&&parent!==model&&!parent.userData.sobytie)parent=parent.parent;parent||=model;
-  const kind=/^Ceiling_/.test(m.name)?'ceiling':/^Lamp/.test(m.name)?'lamp':/^(Wall_|Window_|Door_)/.test(m.name)?'wall':'furniture';
+  const kind=/^Floor_/.test(m.name)?'floor':/^Ceiling_/.test(m.name)?'ceiling':/^Lamp/.test(m.name)?'lamp':/^(Wall_|Window_|Door_)/.test(m.name)?'wall':'furniture';
   const key=[parent.uuid,m.material.uuid,kind].join('|');if(!groups.has(key))groups.set(key,{parent,mat:m.material,kind,meshes:[]});groups.get(key).meshes.push(m);
  }
  for(const g of groups.values()){

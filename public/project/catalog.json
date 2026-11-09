@@ -262,22 +262,6 @@
       "currency": "RUB"
     },
     {
-      "id": "H2",
-      "group": "Мебель",
-      "name": "Банкетка с местом для обуви",
-      "quantity": 1,
-      "price": 28000,
-      "price_kind": "reserve",
-      "dimensions": "1100×360 мм",
-      "note": "Съёмный текстиль, открытая полка для текущей обуви.",
-      "url": "",
-      "objects": "H2",
-      "unit": "шт.",
-      "alternative": false,
-      "checked": "",
-      "currency": "RUB"
-    },
-    {
       "id": "M1",
       "group": "Мебель",
       "name": "Кровать родителей на заказ",
@@ -649,8 +633,8 @@
   "summary": {
     "Комплектация": {
       "catalog": 480287,
-      "reserve": 2746000,
-      "total": 3226287
+      "reserve": 2718000,
+      "total": 3198287
     },
     "Отделка": {
       "catalog": 311189.76,

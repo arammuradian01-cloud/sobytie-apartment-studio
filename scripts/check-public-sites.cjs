@@ -34,6 +34,17 @@ fs.mkdirSync(out, { recursive: true });
       result.cookies = (await context.cookies()).length;
       result.passwordFields = await page.locator('input[type="password"]').count();
       if (name.startsWith('sobytie')) {
+        if (result.loaded.exterior.revision !== 'E03' || !result.loaded.exterior.photo.loaded) throw new Error('E03 panorama missing');
+        const layout = await page.evaluate(async () => (await fetch(new URL('project/project.json?v=T05E03',location.href))).json());
+        if (Object.values(layout.variants).some(v => v.objects.some(o => o.id === 'H2'))) throw new Error('Corridor bench still present');
+        await page.evaluate(() => window.sobytie.selectRoom('corridor'));
+        const beforeClick = await page.evaluate(() => window.sobytie.diagnostics().camera);
+        const box = await page.locator('#scene').boundingBox();
+        await page.locator('#scene').click({ position: { x: box.width * .5, y: box.height * .78 } });
+        await page.waitForFunction(before => Math.hypot(...window.sobytie.diagnostics().camera.map((v,i)=>v-before[i])) > .1, beforeClick, { timeout: 15000 });
+        result.clickWalk = await page.evaluate(() => ({...window.sobytie.diagnostics().walk,blocked:window.sobytie.diagnostics().blocked}));
+        if (result.clickWalk.blocked) throw new Error('Click walk entered obstacle');
+        await page.evaluate(() => window.sobytie.stopWalking());
         await page.evaluate(() => { window.sobytie.selectRoom('lower'); window.sobytie.setMode('gallery'); });
         await page.locator('#interior-image').evaluate(image => image.decode());
         result.interior = await page.locator('#interior-image').evaluate(image => ({ src: image.currentSrc, width: image.naturalWidth }));
