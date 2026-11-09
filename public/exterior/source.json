@@ -1,0 +1,23 @@
+{
+  "revision": "E02",
+  "prepared": "2026-11-09",
+  "type": "Approximate project reconstruction, not a photograph or engineering insolation assessment",
+  "apartment": {"quarter": 6, "building": 2, "section": 1, "floor": 10, "number": 70},
+  "location": {"latitude": 55.69598927, "longitude": 37.47562426, "floorAboveGroundM": 33.4, "modelMinusZBearingDegrees": 162.6, "estimatedOrientationUncertaintyDegrees": 10},
+  "sources": [
+    {"title": "Developer brochure, site plan page 12 and facade images", "url": "https://dom-sobytie.ru/upload/iblock/ff4/jltzw02to7bldu94ynap5v70zvoqj6mt.pdf"},
+    {"title": "Developer apartment 70, floor 10", "url": "https://donstroy.moscow/objects/sobytie/plans/quarter6/korpus2/section1/floor10/flat300602070/"},
+    {"title": "Developer panorama, photographed 23 April 2025, used for geographic calibration only", "url": "https://aerostudio360.ru/vt/sobytie6d202505v2/"},
+    {"title": "Public construction schedule: building 2 Q1 2029, building 1 Q4 2029; not a DDU keys delivery date", "url": "https://zhk-sobytie-i.cian.ru/hod-stroitelstva/"},
+    {"title": "OpenStreetMap data extract", "url": "https://api.openstreetmap.org/api/0.6/map?bbox=37.470,55.692,37.480,55.699", "license": "ODbL", "attribution": "© OpenStreetMap contributors", "copyright": "https://www.openstreetmap.org/copyright"},
+    {"title": "SunCalc 2.1.3", "url": "https://github.com/mourner/suncalc", "license": "BSD-2-Clause"}
+  ],
+  "assumptions": [
+    "Orientation inferred from the highlighted floor plan and georeferenced developer masterplan; not surveyed.",
+    "Building floor heights and apartment ground datum approximate; floor plate detail simplified.",
+    "52 surrounding building footprints; 25 heights not recorded and approximated as 10.9 m.",
+    "At building 2 handover, building 1 is a neutral full project mass, not a predicted construction stage.",
+    "Landscaping and trees schematic. Weather, future construction and exact facade occlusion not forecast.",
+    "Clock is fixed Moscow time UTC+3, independent of viewer browser timezone."
+  ]
+}

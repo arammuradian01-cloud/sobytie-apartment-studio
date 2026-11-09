@@ -1,5 +1,7 @@
 import './style.css';
 import './studio.css';
+import {createExterior} from './exterior.js';
+import {solarState} from './solar.js';
 import {setupCatalog} from './catalog.js';
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
@@ -18,7 +20,7 @@ let renderer;
 try{renderer=new THREE.WebGLRenderer({canvas,antialias:true});}catch{ $('#load-message').textContent='3D недоступно. Откройте схемы через меню «Сравнить варианты и планы».';throw new Error('WebGL unavailable');}
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=.88;renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFShadowMap;renderer.localClippingEnabled=true;
 const scene=new THREE.Scene();scene.background=new THREE.Color('#e9e5df');
-const camera=new THREE.PerspectiveCamera(42,1,.025,150);
+const camera=new THREE.PerspectiveCamera(42,1,.025,2500);
 RectAreaLightUniformsLib.init();
 const realistic=createRealisticRenderer(renderer,scene,camera);
 const controls=new OrbitControls(camera,canvas);controls.enableDamping=true;controls.dampingFactor=.09;controls.minDistance=4;controls.maxDistance=100;controls.maxPolarAngle=Math.PI*.48;
@@ -27,7 +29,8 @@ const hemisphere=new THREE.HemisphereLight('#fffaf1','#a99c87',1.0);scene.add(he
 const sun=new THREE.DirectionalLight('#fff1d7',1.9);sun.position.set(-5,15,4);sun.target.position.set(7,0,-3.5);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-13,right:13,top:10,bottom:-10,near:.5,far:45});sun.shadow.bias=-.0001;sun.shadow.normalBias=.025;scene.add(sun,sun.target);
 const ground=new THREE.Mesh(new THREE.PlaneGeometry(140,140),new THREE.MeshStandardMaterial({color:'#e9e5df',roughness:1}));ground.rotation.x=-Math.PI/2;ground.position.y=-.14;ground.receiveShadow=true;scene.add(ground);
 const clip=new THREE.Plane(new THREE.Vector3(0,-1,0),1.1),keys=new Set(),touch=new Set(),cache=new Map();
-let data,model,nav,interaction,meshes=[],lights=[],generation=0;
+let data,model,nav,interaction,exterior,solar,meshes=[],lights=[],generation=0;
+let sunPlaying=false;
 let toastTimer,alternate=false;
 const message=text=>{status.textContent=text;status.classList.add('has-message');clearTimeout(toastTimer);toastTimer=setTimeout(()=>status.classList.remove('has-message'),5000);};
 const world=(p,z=0)=>new THREE.Vector3((p[0]-data.origin[0])*data.scale_m_per_svg_unit,z,(p[1]-data.origin[1])*data.scale_m_per_svg_unit);
@@ -50,14 +53,14 @@ function updateMap(){if(!data)return;const map=$('#minimap');map.replaceChildren
 function updateMarker(){const marker=$('#camera-marker');if(!marker)return;marker.style.display=state.mode==='walk'?'':'none';const p=source(camera.position);marker.setAttribute('transform',`translate(${p[0]} ${p[1]}) rotate(${-state.yaw*180/Math.PI})`);}
 function sceneMode(){
  for(const m of meshes){const k=m.userData.kind;m.visible=!(state.mode!=='walk'&&(k==='ceiling'||k==='lamp'));const clipIt=state.mode!=='walk'&&state.cut&&k==='wall';m.material.clippingPlanes=clipIt?[clip]:[];m.material.needsUpdate=true;}
- ground.visible=state.mode!=='walk';controls.enabled=state.mode==='overview'||state.mode==='top';$('#interiors').hidden=state.mode!=='gallery';canvas.hidden=state.mode==='gallery';$('#cut-control').hidden=state.mode==='walk';$('#movement').hidden=state.mode!=='walk';document.body.dataset.mode=state.mode;
+ ground.visible=state.mode!=='walk';exterior?.setVisible(state.mode==='walk');applySun();controls.enabled=state.mode==='overview'||state.mode==='top';$('#interiors').hidden=state.mode!=='gallery';canvas.hidden=state.mode==='gallery';$('#cut-control').hidden=state.mode==='walk';$('#movement').hidden=state.mode!=='walk';document.body.dataset.mode=state.mode;
 }
 function updateUI(){
  document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===state.mode||(b.dataset.mode==='overview'&&state.mode==='top'))));
  document.querySelectorAll('[data-variant]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.variant===state.variant)));
- const r=data.rooms.find(r=>r.id===state.room);$('#view-name').textContent=['walk','gallery'].includes(state.mode)?roomName(r):state.mode==='top'?'Расстановка сверху':'Квартира целиком';$('#view-caption').textContent=state.mode==='gallery'?'Интерьеры · вариант '+state.variant:state.mode==='walk'?'На уровне глаз · 1,60 м':'Вариант '+state.variant+' · объём и расстановка';
+ const r=data.rooms.find(r=>r.id===state.room);$('#view-name').textContent=['walk','gallery'].includes(state.mode)?roomName(r):state.mode==='top'?'Расстановка сверху':'Квартира целиком';$('#view-caption').textContent=state.mode==='gallery'?'Образ интерьера V01 · вариант '+state.variant:state.mode==='walk'?'На уровне глаз · 1,60 м':'Вариант '+state.variant+' · объём и расстановка';
  $('#hint').textContent=state.mode==='walk'?'Потяните экран, чтобы оглядеться. WASD, стрелки или кнопки — движение.':'Потяните, чтобы повернуть. Колёсико или два пальца приближают.';
- document.querySelectorAll('#rooms button').forEach(b=>b.setAttribute('aria-current',String(['walk','gallery'].includes(state.mode)&&b.dataset.room===state.room)));updateMap();$('#room-progress').textContent=(roomOrder.indexOf(state.room)+1)+' / 6';$('#alternate-view').hidden=state.mode!=='walk'||state.variant!=='B'||state.room!=='lower';
+ document.querySelectorAll('#rooms button').forEach(b=>b.setAttribute('aria-current',String(['walk','gallery'].includes(state.mode)&&b.dataset.room===state.room)));updateMap();$('#room-progress').textContent=(roomOrder.indexOf(state.room)+1)+' / 6';$('#alternate-view').hidden=state.mode!=='walk'||state.variant!=='B'||state.room!=='lower';$('#window-view').hidden=state.mode!=='walk'||!['kitchen','upper','lower'].includes(state.room);$('#sun-panel').hidden=state.mode==='gallery';updateSunDescription();
 }
 function setMode(mode){if(!state.loaded)return;clearInput();state.mode=mode;if(mode==='walk'){camera.fov=camera.aspect<.8?82:68;camera.updateProjectionMatrix();if(!spawn(state.room)){state.mode='overview';overview();}}else if(mode!=='gallery')overview();sceneMode();updateUI();if(mode==='gallery')gallery();if(state.mode==='walk')canvas.focus({preventScroll:true});}
 function selectRoom(id){if(!state.loaded)return;state.room=id;interaction.chooseRoom(id);setMode(state.mode==='gallery'?'gallery':'walk');setMenuOpen(false);}
@@ -71,7 +74,42 @@ async function loadVariant(key){
  }catch(error){console.error(error);$('#load-message').textContent='Не удалось загрузить модель. Обновите страницу или откройте схемы в боковом меню.';message('Ошибка загрузки 3D');}
  finally{document.querySelectorAll('[data-variant]').forEach(b=>b.disabled=false);}
 }
-function lightMode(){hemisphere.intensity=state.light?.85:.32;scene.environmentIntensity=state.light?.30:.16;sun.intensity=state.light?1.9:.7;lights.forEach(l=>l.intensity=state.light?5.8*state.brightness:0);$('#light-toggle').textContent=state.light?'Свет включён':'Вечер без света';$('#light-toggle').setAttribute('aria-pressed',String(state.light));}
+function lightMode(){lights.forEach(l=>l.intensity=state.light?5.8*state.brightness:0);$('#light-toggle').textContent=state.light?'Свет включён':'Только дневной свет';$('#light-toggle').setAttribute('aria-pressed',String(state.light));applySun();}
+function updateSunDescription(){
+ if(!solar)return;
+ const windowSource={kitchen:[116,356],upper:[591,247],lower:[630,367]}[state.room];
+ let note=solar.altitude<=0?'Солнце за горизонтом.':!windowSource?'Помещение без наружного окна.':'';
+ if(windowSource&&solar.altitude>0){const p=world(windowSource,1.6).toArray(),normal=state.room==='kitchen'?-1:1;
+ note=solar.direction[0]*normal<=0?'Прямое солнце с другой стороны дома.':exterior?.occlusion(p,solar.direction)?'Окно затеняет соседний объём.':'Солнце со стороны окна.';}
+ $('#sun-description').textContent=`${note} Высота ${Math.round(solar.altitude)}° · азимут ${Math.round(solar.azimuth)}°. Восход ${solar.sunrise}, закат ${solar.sunset}.`;
+}
+function applySun(){
+ solar=solarState($('#sun-date').value,Number($('#sun-time').value));if(!solar)return;
+ $('#sun-time-label').textContent=solar.time;$('#sun-summary').textContent=solar.time+' МСК';
+ $('#sun-time').setAttribute('aria-valuetext',solar.time+' по Москве');
+ const v=new THREE.Vector3(...solar.direction),walk=state.mode==='walk';
+ sun.target.position.set(7,1.2,-3.5);sun.position.copy(sun.target.position).addScaledVector(v,400);
+ Object.assign(sun.shadow.camera,{left:-15,right:15,top:15,bottom:-15,near:.5,far:850});sun.shadow.camera.updateProjectionMatrix();sun.shadow.normalBias=.012;
+ sun.intensity=solar.altitude>0?2.8*Math.min(1,solar.altitude/12):0;
+ sun.color.set(solar.altitude<12?'#ffc88b':'#fff4e3');
+ hemisphere.intensity=walk?.06+solar.daylight*.64:.95;scene.environmentIntensity=walk?.03+solar.daylight*.24:.30;
+ scene.background.set(walk?(solar.altitude>-7?'#b8c8ce':'#101a2b'):'#e9e5df');
+ exterior?.updateSun(solar);updateSunDescription();
+}
+$('#sun-time').oninput=$('#sun-date').oninput=()=>{sunPlaying=false;$('#sun-play').textContent='▶';$('#sun-play').setAttribute('aria-pressed','false');applySun();};
+for(const b of document.querySelectorAll('[data-sun-date]'))b.onclick=()=>{$('#sun-date').value=$('#sun-date').value.slice(0,4)+'-'+b.dataset.sunDate;applySun();};
+$('#sun-play').onclick=()=>{sunPlaying=!sunPlaying;$('#sun-play').textContent=sunPlaying?'Ⅱ':'▶';$('#sun-play').setAttribute('aria-pressed',String(sunPlaying));};
+$('#exterior-phase').onchange=e=>{exterior?.setPhase(e.target.value);updateSunDescription();};
+function windowView(){
+ if(!['kitchen','upper','lower'].includes(state.room))return;
+ if(state.mode!=='walk')setMode('walk');
+ const target={kitchen:[118,356],upper:[589,247],lower:[627,367]}[state.room];
+ const sign=state.room==='kitchen'?1:-1;let position;
+ for(const distance of [32,45,60,75,95]){for(const dy of [0,-15,15,-30,30]){const p=[target[0]+sign*distance,target[1]+dy];if(!blocked(...p)){position=p;break;}}if(position)break;}
+ if(position)camera.position.copy(world(position,1.6));
+ camera.lookAt(world([target[0]-sign*200,target[1]],1.6));const e=new THREE.Euler().setFromQuaternion(camera.quaternion,'YXZ');state.yaw=e.y;state.pitch=e.x;updateMarker();message('Проектное окружение · 10-й этаж. Солнце — в панели времени.');
+}
+$('#window-view').onclick=windowView;
 $('#brightness').oninput=e=>{state.brightness=Number(e.target.value)/100;$('#brightness-value').textContent=e.target.value+'%';lightMode();};
 $('#quality').onchange=e=>realistic.setEnabled(e.target.checked);
 document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));document.querySelectorAll('[data-variant]').forEach(b=>b.onclick=()=>loadVariant(b.dataset.variant));
@@ -82,16 +120,18 @@ $('#menu').onclick=()=>setMenuOpen(true);$('#collapse').onclick=$('#sidebar-mask
 window.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.body.classList.contains('menu-open')){setMenuOpen(false);$('#menu').focus();}});
 $('#objects-toggle').onclick=()=>{$('#objects').hidden=!$('#objects').hidden;$('#objects-toggle').setAttribute('aria-expanded',String(!$('#objects').hidden));};$('#objects-close').onclick=()=>{$('#objects').hidden=true;$('#objects-toggle').setAttribute('aria-expanded','false');};
 $('#map-toggle').onclick=()=>{$('#minimap').hidden=!$('#minimap').hidden;$('#map-toggle').setAttribute('aria-expanded',String(!$('#minimap').hidden));};
-for(const id of ['compare','docs','help','catalog']){$('#'+id+'-open').onclick=()=>{clearInput();$('#'+id).showModal();};$('#'+id+' .dialog-close').onclick=()=>$('#'+id).close();$('#'+id).addEventListener('click',e=>{if(e.target===e.currentTarget){const b=e.target.getBoundingClientRect();if(e.clientX<b.left||e.clientX>b.right||e.clientY<b.top||e.clientY>b.bottom)e.target.close();}});}
+for(const id of ['compare','docs','help','catalog','exterior']){$('#'+id+'-open').onclick=()=>{clearInput();$('#'+id).showModal();};$('#'+id+' .dialog-close').onclick=()=>$('#'+id).close();$('#'+id).addEventListener('click',e=>{if(e.target===e.currentTarget){const b=e.target.getBoundingClientRect();if(e.clientX<b.left||e.clientX>b.right||e.clientY<b.top||e.clientY>b.bottom)e.target.close();}});}
 document.querySelectorAll('[data-choose]').forEach(b=>b.onclick=()=>{$('#compare').close();setMenuOpen(false);loadVariant(b.dataset.choose);});
+function interiorPath(id){return import.meta.env.BASE_URL+'interiors/'+(['corridor','bath5','bath65'].includes(id)?'B':state.variant)+'_'+id+'.webp';}
 function gallery(){
- const room=data.rooms.find(r=>r.id===state.room),img=$('#interior-image');
- img.src=import.meta.env.BASE_URL+'views/'+state.variant+'_'+state.room+'.jpg';img.alt=roomName(room)+' — вид модели, вариант '+state.variant;
+ const room=data.rooms.find(r=>r.id===state.room),img=$('#interior-image');$('#interior-study').hidden=state.variant!=='B'||state.room!=='lower';$('#interior-study').textContent='Учебные места';
+ img.src=interiorPath(state.room);img.alt=roomName(room)+' — образ интерьера V01, вариант '+state.variant;
  $('#interior-count').textContent=(roomOrder.indexOf(state.room)+1)+' / '+roomOrder.length;
  const thumbs=$('#interior-thumbs');thumbs.replaceChildren();
- for(const id of roomOrder){const r=data.rooms.find(r=>r.id===id),b=document.createElement('button'),im=document.createElement('img'),label=document.createElement('span');im.src=import.meta.env.BASE_URL+'views/'+state.variant+'_'+id+'.jpg';im.alt='';im.loading='lazy';label.textContent=roomName(r);b.append(im,label);b.setAttribute('aria-label',roomName(r));b.setAttribute('aria-current',String(id===state.room));b.onclick=()=>selectRoom(id);thumbs.append(b);}
+ for(const id of roomOrder){const r=data.rooms.find(r=>r.id===id),b=document.createElement('button'),im=document.createElement('img'),label=document.createElement('span');im.src=interiorPath(id);im.alt='';im.loading='lazy';label.textContent=roomName(r);b.append(im,label);b.setAttribute('aria-label',roomName(r));b.setAttribute('aria-current',String(id===state.room));b.onclick=()=>selectRoom(id);thumbs.append(b);}
  requestAnimationFrame(()=>thumbs.querySelector('[aria-current=true]')?.scrollIntoView({block:'nearest',inline:'center'}));
 }
+$('#interior-study').onclick=()=>{const study=!$('#interior-image').src.includes('_study');$('#interior-image').src=import.meta.env.BASE_URL+'interiors/B_lower'+(study?'_study':'')+'.webp';$('#interior-image').alt=study?'Два учебных места в общей детской — образ V01':'Общая детская — кровати и хранение, образ V01';$('#interior-study').textContent=study?'Кровати и хранение':'Учебные места';};
 $('#gallery-open').onclick=()=>{setMode('gallery');setMenuOpen(false);};
 $('#interior-prev').onclick=()=>selectRoom(roomOrder[(roomOrder.indexOf(state.room)+roomOrder.length-1)%roomOrder.length]);
 $('#interior-next').onclick=()=>selectRoom(roomOrder[(roomOrder.indexOf(state.room)+1)%roomOrder.length]);
@@ -121,9 +161,9 @@ function move(dt){
  const p=source(camera.position),room=data.rooms.find(r=>inside(...p,r.polygon));if(room&&room.id!==state.room){state.room=room.id;interaction.chooseRoom(room.id);updateUI();}
 }
 function resize(){const b=stage.getBoundingClientRect();renderer.setSize(b.width,b.height,false);realistic.resize(b.width,b.height);camera.aspect=b.width/b.height;if(state.mode==='walk')camera.fov=camera.aspect<.8?82:68;camera.updateProjectionMatrix();if(state.loaded&&state.mode!=='walk')overview();}new ResizeObserver(resize).observe(stage);resize();
-let last=performance.now();function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/1000,.04);last=now;if(!state.loaded||state.mode==='gallery')return;interaction.tick(dt,state.mode==='walk');if(state.mode==='walk'&&!document.querySelector('dialog[open]')){move(dt);updateMarker();}else if(state.mode!=='walk')controls.update();realistic.render(state.mode==='walk');}requestAnimationFrame(frame);
-try{data=await(await fetch(import.meta.env.BASE_URL+'project/project.json')).json();for(const room of data.rooms){const l=new THREE.PointLight('#fff0d3',5.8,7,2);l.position.copy(world(room.center,2.8));scene.add(l);lights.push(l);}await loadVariant('B');}catch(error){console.error(error);$('#load-message').textContent='Не удалось загрузить данные проекта. Обновите страницу.';}
+let sunAccumulator=0,last=performance.now();function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/1000,.04);last=now;if(!state.loaded||state.mode==='gallery')return;if(sunPlaying){if(dt>0){sunAccumulator+=dt;if(sunAccumulator>.12){$('#sun-time').value=String((Number($('#sun-time').value)+5)%1440);applySun();sunAccumulator=0;}}}interaction.tick(dt,state.mode==='walk');if(state.mode==='walk'&&!document.querySelector('dialog[open]')){move(dt);updateMarker();}else if(state.mode!=='walk')controls.update();realistic.render(state.mode==='walk');}requestAnimationFrame(frame);
+try{data=await(await fetch(import.meta.env.BASE_URL+'project/project.json')).json();for(const room of data.rooms){const l=new THREE.PointLight('#fff0d3',5.8,7,2);l.position.copy(world(room.center,2.8));scene.add(l);lights.push(l);}exterior=await createExterior(scene);await loadVariant('B');lightMode();}catch(error){console.error(error);$('#load-message').textContent='Не удалось загрузить данные проекта. Обновите страницу.';}
 // Read-only diagnostics and navigation commands support repeatable browser checks.
-window.sobytie={state,selectRoom,setMode,loadVariant,step,setAll:value=>interaction.setAll(value),capture:()=>{realistic.render(state.mode==='walk');return canvas.toDataURL('image/jpeg',.92);},diagnostics:()=>({variant:state.variant,mode:state.mode,loaded:state.loaded,room:state.room,camera:camera.position.toArray(),source:source(camera.position),blocked:nav?blocked(...source(camera.position)):null,objects:interaction?.diagnostics(),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles}),safePositions:()=>Object.fromEntries(data.rooms.map(r=>[r.id,nav.spawn(r.id)]))};
+window.sobytie={state,selectRoom,setMode,loadVariant,step,windowView,setSun:(date,minutes)=>{$('#sun-date').value=date;$('#sun-time').value=String(minutes);applySun();},setAll:value=>interaction.setAll(value),capture:()=>{realistic.render(state.mode==='walk');return canvas.toDataURL('image/jpeg',.92);},diagnostics:()=>({solar,exterior:exterior?.diagnostics(),variant:state.variant,mode:state.mode,loaded:state.loaded,room:state.room,camera:camera.position.toArray(),source:source(camera.position),blocked:nav?blocked(...source(camera.position)):null,objects:interaction?.diagnostics(),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles}),safePositions:()=>Object.fromEntries(data.rooms.map(r=>[r.id,nav.spawn(r.id)]))};
 
 setupCatalog().catch(error=>{console.error(error);document.querySelector("#catalog-body").textContent="Не удалось загрузить подбор. Скачайте ведомость в разделе файлов.";});

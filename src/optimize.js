@@ -12,7 +12,7 @@ export function optimize(model){
   const inv=g.parent.matrixWorld.clone().invert(),geos=[];
   for(const m of g.meshes){let geo=m.geometry.clone().applyMatrix4(inv.clone().multiply(m.matrixWorld));if(geo.index)geo=geo.toNonIndexed();for(const name of Object.keys(geo.attributes))if(!['position','normal','uv'].includes(name))geo.deleteAttribute(name);if(!geo.attributes.normal)geo.computeVertexNormals();if(!geo.attributes.uv)geo.setAttribute('uv',new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count*2),2));geos.push(geo);}
   const merged=mergeGeometries(geos);if(!merged)throw new Error('Geometry merge failed');
-  const m=new THREE.Mesh(merged,g.mat.clone());m.name=g.kind+'_merged';m.userData.kind=g.kind;m.castShadow=g.kind!=='ceiling'&&!g.mat.transparent;m.receiveShadow=true;g.parent.add(m);g.meshes.forEach(x=>x.removeFromParent());geos.forEach(x=>x.dispose());
+  const m=new THREE.Mesh(merged,g.mat.clone());m.name=g.kind+'_merged';m.userData.kind=g.kind;m.castShadow=!g.mat.transparent;m.receiveShadow=true;g.parent.add(m);g.meshes.forEach(x=>x.removeFromParent());geos.forEach(x=>x.dispose());
  }
  return model;
 }

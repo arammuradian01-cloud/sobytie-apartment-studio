@@ -1,0 +1,11 @@
+{
+  "revision": "V01",
+  "created": "2026-11-09",
+  "method": "Built-in image_gen, room-specific design concepts using the P04 model views as layout references",
+  "notPhotography": true,
+  "size": [1536, 1024],
+  "style": "Warm ivory, natural light oak, muted wine accents, brass, layered textiles and finished lighting",
+  "files": ["B_kitchen.webp", "B_upper.webp", "B_lower.webp", "B_lower_study.webp", "B_corridor.webp", "B_bath5.webp", "B_bath65.webp", "A_kitchen.webp", "A_upper.webp", "A_lower.webp"],
+  "sharedRooms": "Corridor and bathrooms use the same B images for both variants because their layout and finishes are shared.",
+  "limitations": "These are AI-generated design concepts, not photographs or dimensionally certified renders. Window views and light in these still images are artistic; the interactive E02 view and solar clock are separate."
+}
